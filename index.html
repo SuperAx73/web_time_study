@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Study Snapback</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap">
+  <style>
+    body { font-family: 'Roboto', Arial, sans-serif; background: #f4f4f4; margin: 0; }
+    .tabs { display: flex; background: #1976d2; }
+    .tab { flex: 1; padding: 1em; color: #fff; text-align: center; cursor: pointer; font-weight: bold; }
+    .tab.active { background: #fff; color: #1976d2; border-bottom: 2px solid #1976d2; }
+    .tab-content { background: #fff; padding: 2em; max-width: 1100px; margin: 0 auto; box-shadow: 0 2px 8px #0001; }
+    .row { display: flex; gap: 1em; margin-bottom: 1em; }
+    .row label { min-width: 160px; font-weight: bold; }
+    .row input, .row textarea { flex: 1; padding: 0.5em; border: 1px solid #ccc; border-radius: 4px; }
+    .btn { background: #1976d2; color: #fff; border: none; padding: 0.7em 1.5em; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 0.5em; }
+    .btn:disabled { background: #ccc; }
+    .btn.red { background: #d32f2f; }
+    .timer { font-size: 2.5em; font-weight: bold; margin-bottom: 1em; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+    th, td { border: 1px solid #bbb; padding: 0.5em 0.7em; text-align: center; }
+    th { background: #e3f6fd; }
+    .excel-btn { float: right; margin-top: 1em; }
+    .logo { height: 48px; margin-bottom: 1em; }
+    .header-table td { background: #e3f6fd; font-weight: bold; }
+    .section-title { background: #f7e7c7; font-weight: bold; text-align: left; padding: 0.5em; }
+    .observed { background: #d9f7be; }
+    .orange { background: #ffe0b2; }
+    .blue { background: #e3f6fd; }
+    .green { background: #d0f5e8; }
+    .remarks { background: #b3e5fc; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="tabs">
+    <div class="tab active" id="tab-crono" onclick="showTab('crono')">Cronómetro</div>
+    <div class="tab" id="tab-config" onclick="showTab('config')">Configuración</div>
+  </div>
+  <div class="tab-content" id="content-crono">
+    <img src="logo.png" alt="Jabil Logo" class="logo">
+    <div class="timer" id="timer">00:00.00</div>
+    <div>
+      <button class="btn" id="startBtn">Iniciar</button>
+      <button class="btn" id="pauseBtn" disabled>Pausar</button>
+      <button class="btn" id="resetBtn" disabled>Reset</button>
+      <button class="btn" id="lapBtn" disabled>Salida de pieza</button>
+    </div>
+    <table id="lapsTable">
+      <thead>
+        <tr><th>#</th><th>Tiempo (seg)</th><th>Eliminar</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <button class="btn excel-btn" onclick="exportExcel()">Exportar a Excel</button>
+  </div>
+  <div class="tab-content" id="content-config" style="display:none">
+    <img src="logo.png" alt="Jabil Logo" class="logo">
+    <form id="configForm">
+      <div class="row"><label>Workcell/Customer:</label><input name="customer" required></div>
+      <div class="row"><label>Workcenter:</label><input name="workcenter"></div>
+      <div class="row"><label>Product Family:</label><input name="family" required></div>
+      <div class="row"><label>Sub Workcenter:</label><input name="subworkcenter"></div>
+      <div class="row"><label>Assembly / Rev:</label><input name="assembly" required></div>
+      <div class="row"><label>WI No./Rev:</label><input name="wi"></div>
+      <div class="row"><label>Process Description:</label><input name="desc"></div>
+      <div class="row"><label>Fecha:</label><input name="date" type="date" required></div>
+      <div class="row"><label>Nombre(s) de quien realiza el estudio:</label><input name="names" required></div>
+      <button class="btn" type="submit">Guardar configuración</button>
+    </form>
+  </div>
+  <script>
+    // --- Tabs ---
+    function showTab(tab) {
+      document.getElementById('tab-crono').classList.toggle('active', tab==='crono');
+      document.getElementById('tab-config').classList.toggle('active', tab==='config');
+      document.getElementById('content-crono').style.display = tab==='crono' ? '' : 'none';
+      document.getElementById('content-config').style.display = tab==='config' ? '' : 'none';
+    }
+
+    // --- Configuración ---
+    let config = JSON.parse(localStorage.getItem('config')) || {
+      customer: '', workcenter: '', family: '', subworkcenter: '', assembly: '', wi: '', desc: '', date: '', names: ''
+    };
+    const configForm = document.getElementById('configForm');
+    for (const el of configForm.elements) {
+      if (el.name && config[el.name] !== undefined) el.value = config[el.name];
+    }
+    configForm.onsubmit = function(e) {
+      e.preventDefault();
+      for (const el of configForm.elements) {
+        if (el.name) config[el.name] = el.value;
+      }
+      localStorage.setItem('config', JSON.stringify(config));
+      alert('Configuración guardada');
+    };
+
+    // --- Cronómetro ---
+    let timer = 0, interval = null, running = false, laps = JSON.parse(localStorage.getItem('laps')) || [];
+    const timerEl = document.getElementById('timer');
+    function updateTimer() {
+      let min = Math.floor(timer/6000), sec = Math.floor((timer%6000)/100), cs = timer%100;
+      timerEl.textContent = `${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}.${cs.toString().padStart(2,'0')}`;
+    }
+    function start() {
+      if (!running) {
+        interval = setInterval(()=>{timer++; updateTimer();}, 10);
+        running = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('resetBtn').disabled = false;
+        document.getElementById('lapBtn').disabled = false;
+      }
+    }
+    function pause() {
+      if (running) {
+        clearInterval(interval); running = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('pauseBtn').disabled = true;
+      }
+    }
+    function reset() {
+      pause(); timer = 0; updateTimer();
+      document.getElementById('resetBtn').disabled = true;
+      document.getElementById('lapBtn').disabled = true;
+    }
+    function lap() {
+      if (timer > 0) {
+        let seconds = (timer/100).toFixed(2);
+        laps.push(Number(seconds));
+        localStorage.setItem('laps', JSON.stringify(laps));
+        renderLaps();
+        timer = 0; updateTimer();
+      }
+    }
+    function renderLaps() {
+      const tbody = document.querySelector('#lapsTable tbody');
+      tbody.innerHTML = '';
+      laps.forEach((t, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${i+1}</td><td>${t}</td><td><button class='btn red' onclick='deleteLap(${i})'>X</button></td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    function deleteLap(idx) {
+      laps.splice(idx,1); localStorage.setItem('laps', JSON.stringify(laps)); renderLaps();
+    }
+    document.getElementById('startBtn').onclick = start;
+    document.getElementById('pauseBtn').onclick = pause;
+    document.getElementById('resetBtn').onclick = reset;
+    document.getElementById('lapBtn').onclick = lap;
+    renderLaps(); updateTimer();
+
+    // --- Exportar a Excel ---
+    function exportExcel() {
+      if (!config.family || !config.assembly) {
+        alert('Llena la configuración primero');
+        showTab('config');
+        return;
+      }
+      // --- Construir datos para Excel ---
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([]);
+      // Logo (no se puede insertar imagen con SheetJS Community, pero se deja espacio)
+      ws['!merges'] = [
+        {s:{r:0,c:0}, e:{r:3,c:2}}, // Logo
+        {s:{r:0,c:3}, e:{r:3,c:26}} // Título
+      ];
+      ws['A1'] = {v:'', t:'s'};
+      ws['D1'] = {v:'Time Study Snapback', t:'s'};
+      ws['A5'] = {v:'Workcell/Customer:', t:'s'};
+      ws['B5'] = {v:config.customer, t:'s'};
+      ws['C5'] = {v:'Workcenter:', t:'s'};
+      ws['D5'] = {v:config.workcenter, t:'s'};
+      ws['A6'] = {v:'Product Family:', t:'s'};
+      ws['B6'] = {v:config.family, t:'s'};
+      ws['C6'] = {v:'Sub Workcenter:', t:'s'};
+      ws['D6'] = {v:config.subworkcenter, t:'s'};
+      ws['A7'] = {v:'Assembly / Rev:', t:'s'};
+      ws['B7'] = {v:config.assembly, t:'s'};
+      ws['C7'] = {v:'WI No./Rev:', t:'s'};
+      ws['D7'] = {v:config.wi, t:'s'};
+      ws['A8'] = {v:'Process Description:', t:'s'};
+      ws['B8'] = {v:config.desc, t:'s'};
+      ws['G5'] = {v:'Fecha:', t:'s'};
+      ws['H5'] = {v:config.date, t:'s'};
+      ws['G6'] = {v:'', t:'s'};
+      ws['H6'] = {v:'', t:'s'};
+      ws['G7'] = {v:'', t:'s'};
+      ws['H7'] = {v:'', t:'s'};
+      ws['G8'] = {v:'', t:'s'};
+      ws['H8'] = {v:'', t:'s'};
+      ws['A9'] = {v:'', t:'s'};
+      ws['A10'] = {v:'', t:'s'};
+      ws['A11'] = {v:'Seq.', t:'s'};
+      ws['B11'] = {v:'Work Element', t:'s'};
+      ws['C11'] = {v:'Description', t:'s'};
+      ws['D11'] = {v:'Type', t:'s'};
+      for(let i=0;i<10;i++) ws[String.fromCharCode(69+i)+'11'] = {v:(i+1).toString(), t:'s'};
+      ws['O11'] = {v:'NC', t:'s'};
+      ws['P11'] = {v:'Avg. OT', t:'s'};
+      ws['Q11'] = {v:'NC Freq.', t:'s'};
+      ws['R11'] = {v:'App. PF&D', t:'s'};
+      ws['S11'] = {v:'Std. Time', t:'s'};
+      ws['T11'] = {v:'Quoted time', t:'s'};
+      ws['U11'] = {v:'Delta', t:'s'};
+      ws['V11'] = {v:'Rate Std Time', t:'s'};
+      ws['W11'] = {v:'Rate Quoted', t:'s'};
+      ws['X11'] = {v:'Remarks', t:'s'};
+      // --- Datos de tiempos ---
+      let row = 12;
+      let observed = laps.slice(0,10);
+      let avg = observed.length ? (observed.reduce((a,b)=>a+b,0)/observed.length).toFixed(2) : '';
+      for(let i=0;i<1;i++) { // Solo una fila de ejemplo, puedes expandir a más work elements
+        ws['A'+row] = {v:1, t:'n'};
+        ws['B'+row] = {v:'', t:'s'};
+        ws['C'+row] = {v:'', t:'s'};
+        ws['D'+row] = {v:'Mach', t:'s'};
+        for(let j=0;j<10;j++) ws[String.fromCharCode(69+j)+row] = {v:observed[j]||'', t:'n'};
+        ws['O'+row] = {v:'N/A', t:'s'};
+        ws['P'+row] = {v:avg, t:'n'};
+        ws['Q'+row] = {v:1, t:'n'};
+        ws['R'+row] = {v:'0%', t:'s'};
+        ws['S'+row] = {v:'', t:'s'};
+        ws['T'+row] = {v:'', t:'s'};
+        ws['U'+row] = {v:'', t:'s'};
+        ws['V'+row] = {v:'', t:'s'};
+        ws['W'+row] = {v:'', t:'s'};
+        ws['X'+row] = {v:'', t:'s'};
+      }
+      ws['!cols'] = Array(24).fill({wpx:80});
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      let fname = `TIME STUDY ${config.family} ${config.assembly}.xlsx`;
+      XLSX.writeFile(wb, fname);
+    }
+  </script>
+</body>
+</html> 
