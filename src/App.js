@@ -43,12 +43,18 @@ function App() {
   };
 
   const exportToExcel = () => {
-    const data = measurements.map(m => ({
-      'Fecha': format(new Date(m.timestamp), 'dd/MM/yyyy'),
-      'Hora': format(new Date(m.timestamp), 'HH:mm:ss'),
-      'Tiempo': m.time,
-      'Descripción': m.description,
-    }));
+    const data = measurements.map(m => {
+      const endDate = new Date(m.timestamp);
+      const minutes = parseFloat(m.time) || 0;
+      const startDate = new Date(endDate.getTime() - minutes * 60000);
+      return {
+        'Fecha': format(endDate, 'dd/MM/yyyy'),
+        'Hora': format(endDate, 'HH:mm:ss'),
+        'Hora de Inicio': format(startDate, 'HH:mm:ss'),
+        'Tiempo': m.time,
+        'Descripción': m.description,
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -95,32 +101,41 @@ function App() {
               <TableRow>
                 <TableCell>Fecha</TableCell>
                 <TableCell>Hora</TableCell>
+                <TableCell>Hora de Inicio</TableCell>
                 <TableCell>Tiempo</TableCell>
                 <TableCell>Descripción</TableCell>
                 <TableCell>Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {measurements.map((measurement) => (
-                <TableRow key={measurement.id}>
-                  <TableCell>
-                    {format(new Date(measurement.timestamp), 'dd/MM/yyyy')}
-                  </TableCell>
-                  <TableCell>
-                    {format(new Date(measurement.timestamp), 'HH:mm:ss')}
-                  </TableCell>
-                  <TableCell>{measurement.time}</TableCell>
-                  <TableCell>{measurement.description}</TableCell>
-                  <TableCell>
-                    <IconButton
-                      onClick={() => handleDeleteMeasurement(measurement.id)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {measurements.map((measurement) => {
+                const endDate = new Date(measurement.timestamp);
+                const minutes = parseFloat(measurement.time) || 0;
+                const startDate = new Date(endDate.getTime() - minutes * 60000);
+                return (
+                  <TableRow key={measurement.id}>
+                    <TableCell>
+                      {format(endDate, 'dd/MM/yyyy')}
+                    </TableCell>
+                    <TableCell>
+                      {format(endDate, 'HH:mm:ss')}
+                    </TableCell>
+                    <TableCell>
+                      {format(startDate, 'HH:mm:ss')}
+                    </TableCell>
+                    <TableCell>{measurement.time}</TableCell>
+                    <TableCell>{measurement.description}</TableCell>
+                    <TableCell>
+                      <IconButton
+                        onClick={() => handleDeleteMeasurement(measurement.id)}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
