@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -22,6 +22,18 @@ function App() {
   const [measurements, setMeasurements] = useState([]);
   const [currentTime, setCurrentTime] = useState('');
   const [description, setDescription] = useState('');
+
+  // Cargar registros guardados al iniciar
+  useEffect(() => {
+    const saved = localStorage.getItem('measurements');
+    if (saved) {
+      setMeasurements(JSON.parse(saved));
+    }
+  }, []);
+  // Guardar registros cada vez que cambian
+  useEffect(() => {
+    localStorage.setItem('measurements', JSON.stringify(measurements));
+  }, [measurements]);
 
   const handleAddMeasurement = () => {
     if (!currentTime || !description) return;
